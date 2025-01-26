@@ -4,8 +4,20 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 use tauri::{Manager, Window};
+mod music_player;
+use rodio::Sink;
+use serde::Serialize;
 
+#[derive(Serialize)]
+pub struct Song {
+    pub label: String,
+    pub value: String,
+}
+struct AppState {
+    current_song: Mutex<Option<Arc<Sink>>>,
+}
 // getJsonData 读取一个本地json文件
 #[tauri::command]
 fn get_json_data() -> String {
@@ -113,6 +125,13 @@ pub fn run() {
             ));
             Ok(())
         })
+        .manage(
+            Arc::new(
+                AppState {
+                    current_song: Mutex::new(None)
+                }
+            )
+        )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
@@ -120,6 +139,10 @@ pub fn run() {
             start_cmd,
             upload_file_path,
             save_position,
+            music_player::get_songs,
+            music_player::play_song,
+            music_player::pause_song,
+            music_player::set_volume,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
