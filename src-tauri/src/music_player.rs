@@ -73,7 +73,7 @@ pub fn play_song(app:AppHandle, label: String,vol: f32, state: State<'_, Arc<App
         match Decoder::new(BufReader::new(file)) {
             Ok(source) => sink.append(source),
             Err(e) => {
-                eprintln!("Error decoding : {}", e);
+                eprintln!("Error decoding : {}; Song info : {}", e, label);
                 return;
             }
         }

@@ -5,8 +5,8 @@
         autocomplete="off"
         ref="input"
         @keydown.enter.prevent="search()"
-        @keydown.up.prevent="chooseLi(true)"
-        @keydown.down="chooseLi(false)"
+        @keydown.up.prevent="(e) => chooseLi(e, true)"
+        @keydown.down.prevent="(e) => chooseLi(e, false)"
         v-model="inputValue"
         id="drag-region"
         autofocus
@@ -14,9 +14,10 @@
         placeholder="Search in mTool"
       />
     </div>
-    <ul id="autocomplete-results" class="autocomplete-results">
+    <ul class="autocomplete-results" ref="resultsList">
       <li
         v-for="result in results"
+        :key="result.label"
         :class="
           result.isSelected ? 'autocomplete-result selected' : 'autocomplete-result'
         "
@@ -29,13 +30,13 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { onMounted, ref, watch, nextTick } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { onHide, onShow } from "./windowApi";
 import { listen } from "@tauri-apps/api/event";
 
-listen<boolean>("play_finish", (event) => {
+listen<boolean>("play_finish", () => {
   // 随机取一个
   playRandomSong();
 });
@@ -49,7 +50,7 @@ let selectedData: item = { value: "", label: "" };
 let input = ref();
 const currentWin = getCurrentWindow();
 
-watch(inputValue, async (newValue) => {
+watch(inputValue, async (newValue: string) => {
   // dev
   const rowJSON = await invoke("get_json_data");
   data = JSON.parse(rowJSON as string).concat(musicList);
@@ -67,14 +68,14 @@ watch(inputValue, async (newValue) => {
     if (results.value.length > 0) {
       selectedData = results.value[0];
       results.value[0].isSelected = true;
-      if (results.value.some((res) => res.value === inputValue.value)) {
+      if (results.value.some((res: item) => res.value === inputValue.value)) {
         input.value!.classList.add("success");
       } else {
         input.value!.classList.remove("success");
       }
     }
   }
-  currentWin.setSize(new LogicalSize(800, results.value.length * 55 + 40));
+  currentWin.setSize(new LogicalSize(800, Math.min(results.value.length, 4) * 55 + 40));
 });
 
 // file dragin
@@ -91,14 +92,13 @@ onMounted(async () => {
     currentWin.startDragging();
   });
   if (localStorage.getItem("volume") == null) {
-    localStorage.setItem("volume", 1);
+    localStorage.setItem("volume", "1");
   }
   setTimeout(async () => {
     await onShow(currentWin);
     await currentWin.setFocus();
     const rowJSON = await invoke("get_json_data");
     musicList = await invoke("get_songs");
-    console.log(musicList);
     data = JSON.parse(rowJSON as string);
     data.concat(musicList);
   }, 0);
@@ -108,8 +108,9 @@ async function runExec(cmd: string) {
   try {
     if (cmd.endsWith("mp3")) {
       await invoke("play_song", {
-        title: cmd,
-        vol: parseFloat(localStorage.getItem("volume")),
+        value: cmd,
+        label: cmd,
+        vol: parseFloat(localStorage.getItem("volume")!),
       });
     } else {
       await invoke("start_cmd", { cmd });
@@ -120,20 +121,27 @@ async function runExec(cmd: string) {
     console.error(error);
   }
 }
-const playRandomSong = () => {
+const restSongs = [];
+const playRandomSong = async () => {
+  if (musicList.length == 0) {
+    // 重置
+    musicList = await invoke("get_music_list");
+  }
+  const index = Math.floor(Math.random() * musicList.length);
   invoke("play_song", {
-    ...musicList[Math.floor(Math.random() * musicList.length)],
-    vol: parseFloat(localStorage.getItem("volume")),
+    ...musicList[index],
+    vol: parseFloat(localStorage.getItem("volume")!),
   });
+  musicList.splice(index, 1);
 };
 const search = async () => {
   if (inputValue.value.startsWith("volume")) {
     localStorage.setItem(
       "volume",
-      parseInt((inputValue.value as string).split(" ")[1]) / 100.0
+      parseInt((inputValue.value as string).split(" ")[1]) / 100.0 + ""
     );
     invoke("set_volume", {
-      vol: parseFloat(localStorage.getItem("volume")),
+      vol: parseFloat(localStorage.getItem("volume")!),
     });
     return;
   }
@@ -154,8 +162,14 @@ const search = async () => {
   }
 };
 
-const chooseLi = (isUp: boolean) => {
+const resultsList = ref<HTMLElement | null>(null);
+const chooseLi = (e: MouseEvent, isUp: boolean) => {
+  e.preventDefault();
   if (results.value.length > 0) {
+    // 滑动到选中项
+    resultsList
+      .value!.querySelector(".selected")!
+      .scrollIntoView({ behavior: "smooth", block: "center" });
     let index = results.value.findIndex((item, index, arr) => {
       if (item.isSelected) {
         arr[index].isSelected = false;
